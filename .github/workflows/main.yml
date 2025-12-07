@@ -37,10 +37,9 @@ jobs:
           pip install mlflow  
           
       # Run as a mlflow project
-      - name: Run MLflow
+      - name: Run mlflow project
         run: |
-          export MLFLOW_TRACKING_URI=sqlite:///mlflow.db
-          mlflow run MLproject --env-manager=local
+          mlflow run MLproject --env-manager=local 
       
       # Get latest run_id
       - name: Get latest MLflow run_id
