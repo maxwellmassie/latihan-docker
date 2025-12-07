@@ -35,40 +35,30 @@ jobs:
       - name: Check Env
         run: echo $CSV_URL
 
-      # 4. Run mlflow project
+      # 4. Run mlflow project (PERBAIKAN)
       - name: Run mlflow project
-        # --env-manager=local tidak diperlukan karena Conda sudah di-setup
         run: |
-          mlflow run MLproject 
-          # Tambahkan parameter jika Anda ingin memastikan nilai default:
-          # mlflow run MLproject -P n_estimators=505 -P max_depth=37 -P dataset="train_pca.csv"
+          # Gunakan 'conda run -n mlflow-env' untuk memastikan MLflow diakses dari environment yang benar
+          conda run -n mlflow-env mlflow run MLproject 
 
-      # 5. Get latest run_id (Tracking default ke ./mlruns/)
+      # 5. Get latest run_id (Ini harus dijalankan di environment Conda juga, untuk memastikan MLflow CLI berfungsi)
       - name: Get latest MLflow run_id
         run: |
-          # Asumsi Experiment ID default adalah '0'
-          RUN_ID=$(ls -td mlruns/0/*/ | head -n 1 | cut -d'/' -f3)
+          # Gunakan conda run untuk perintah MLflow CLI
+          RUN_ID=$(conda run -n mlflow-env mlflow experiments search --max-results 1 --output-json | jq -r '.[0].latest_run_id')
+          # Solusi lama (masih bisa dipakai jika Anda yakin run ID-nya ada):
+          # RUN_ID=$(ls -td mlruns/0/*/ | head -n 1 | cut -d'/' -f3)
+
           echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
           echo "Latest run_id: $RUN_ID"
-      
-      # 6. Build Docker Model
+        # Catatan: Jika Anda menggunakan metode jq, Anda harus menambahkan 'jq' ke conda.yaml atau menginstalnya.
+        # Jika tidak, gunakan metode 'ls' yang lebih sederhana seperti di bawah.
+
+      # 6. Build Docker Model (PERBAIKAN)
       - name: Build Docker Model
         run: |
-          # Catatan: Perintah ini mungkin memerlukan Docker di-setup, tapi umumnya sudah ada
-          # di runner ubuntu-latest.
-          mlflow models build-docker --model-uri "runs:/$RUN_ID/model" --name "cc"
-          
-      # 7. Login to Docker Hub
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
-          
-      # 8. Tag the Docker image
-      - name: Tag Docker Image
-        run: |
-          docker tag cc ${{ secrets.DOCKER_HUB_USERNAME }}/cc:latest
+          # Gunakan conda run untuk perintah MLflow CLI
+          conda run -n mlflow-env mlflow models build-docker --model-uri "runs:/$RUN_ID/model" --name "cc"
           
       # 9. Push Docker image to Docker Hub
       - name: Push Docker Image
