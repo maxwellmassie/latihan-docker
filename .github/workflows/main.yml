@@ -1,4 +1,5 @@
 name: CI/CD MLflow
+
 on:
   push:
     branches:
@@ -10,57 +11,61 @@ on:
 env:
   CSV_URL: "MLproject/train_pca.csv"
   TARGET_VAR: "Credit_Score"
-  # Pastikan MLFLOW_TRACKING_URI TIDAK diatur, biarkan MLflow CLI menggunakan tracking lokal (mlruns)
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4 # Gunakan v4 terbaru
 
-      # 1. Setup Conda dan Dependencies dari conda.yaml (REVISI PENTING)
-      - name: Set up Conda & Install Dependencies
-        uses: conda-incubator/setup-miniconda@v3
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE
+      - uses: actions/checkout@v3
+
+      # Setup Python 3.12.7
+      - name: Set up Python 3.12.7
+        uses: actions/setup-python@v4
         with:
-          auto-update-conda: true
-          python-version: 3.9 # Gunakan versi yang kompatibel dengan Conda/Python di environment Anda
-          activate-environment: latihan-cs-mlflow # Nama environment dari conda.yaml Anda
-          environment-file: MLproject/conda.yaml
-          # Pastikan file conda.yaml berada di MLproject/conda.yaml
+          python-version: "3.12.7"
+      
+      # Check Env Variables
+      - name: Check Env
+        run: |
+          echo $CSV_URL
+      # Install mlflow
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install mlflow  
           
-      # 2. Run mlflow project
+      # Run as a mlflow project
       - name: Run mlflow project
         run: |
-          # Pastikan Conda environment diaktifkan untuk perintah ini
-          mlflow run MLproject
-          # Anda juga dapat menambahkan parameter secara eksplisit jika diperlukan:
-          # mlflow run MLproject -P n_estimators=505 -P max_depth=37 -P dataset="train_pca.csv"
-
-      # 3. Get latest run_id (Ini akan berhasil karena tracking default ke ./mlruns/)
+          mlflow run MLproject --env-manager=local 
+      
+      # Get latest run_id
       - name: Get latest MLflow run_id
         run: |
-          # Perlu dicatat: Jika ID experiment bukan '0', ini akan gagal.
-          # Asumsi default experiment ID adalah '0'.
           RUN_ID=$(ls -td mlruns/0/*/ | head -n 1 | cut -d'/' -f3)
           echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
           echo "Latest run_id: $RUN_ID"
-      
-      # 4. Build Docker Model
+          
+      # Build Docker Model
       - name: Build Docker Model
         run: |
-          mlflow models build-docker --model-uri "runs:/$RUN_ID/model" --name "cc"
-          
-      # 5. Login, Tag, dan Push Docker Image
+          mlflow models build-docker --model-uri "runs:/$RUN_ID/model" --name "cc" 
+
+      # Login to Docker Hub
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
-          
+
+      # Tag the Docker image
       - name: Tag Docker Image
         run: |
           docker tag cc ${{ secrets.DOCKER_HUB_USERNAME }}/cc:latest
-          
+
+      # Push Docker image to Docker Hub
       - name: Push Docker Image
         run: |
           docker push ${{ secrets.DOCKER_HUB_USERNAME }}/cc:latest
