@@ -1,4 +1,5 @@
 name: CI/CD MLflow
+
 on:
   push:
     branches:
@@ -8,59 +9,74 @@ on:
       - main
 
 env:
-  # Env vars ini tidak digunakan di modelling.py yang baru, tapi tidak masalah jika dipertahankan.
-  CSV_URL: "MLproject/train_pca.csv"
-  TARGET_VAR: "Credit_Score"
+  CONDA_ENV_NAME: mlflow-env # Nama Environment dari conda.yaml
+  CONDA_ENV_PATH: MLproject/conda.yaml
+  DOCKER_IMAGE_NAME: cc 
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
-      # 1. Checkout kode
-      - uses: actions/checkout@v4
+      # 1. Checkout Kode
+      - name: Checks out repository
+        uses: actions/checkout@v4
 
-      # 2. Setup Conda dan Dependencies (MENGGANTIKAN Setup Python & Install Dependencies sebelumnya)
+      # 2. Setup Conda dan Install Dependencies
       - name: Set up Conda & Install Dependencies
         uses: conda-incubator/setup-miniconda@v3
         with:
           auto-update-conda: true
-          # Gunakan Python 3.12.7 sesuai conda.yaml Anda
           python-version: '3.12.7' 
-          # Nama environment HARUS sama persis dengan 'name: mlflow-env' di conda.yaml
-          activate-environment: mlflow-env 
-          # Pastikan file conda.yaml berada di MLproject/conda.yaml (asumsi)
-          environment-file: MLproject/conda.yaml 
-          
-      # 3. Check Env (Opsional, hanya untuk debugging)
-      - name: Check Env
-        run: echo $CSV_URL
+          activate-environment: ${{ env.CONDA_ENV_NAME }} 
+          environment-file: ${{ env.CONDA_ENV_PATH }}
+          auto-activate-base: false
 
-      # 4. Run mlflow project (PERBAIKAN)
-      - name: Run mlflow project
+      # 3. Run MLflow Project
+      - name: Run MLflow Project
         run: |
-          # Gunakan 'conda run -n mlflow-env' untuk memastikan MLflow diakses dari environment yang benar
-          conda run -n mlflow-env mlflow run MLproject 
+          conda run -n ${{ env.CONDA_ENV_NAME }} mlflow run MLproject
 
-      # 5. Get latest run_id (Ini harus dijalankan di environment Conda juga, untuk memastikan MLflow CLI berfungsi)
+      # 4. Get Latest MLflow Run ID (PERBAIKAN)
       - name: Get latest MLflow run_id
+        id: get_run_id # Tambahkan ID untuk referensi
         run: |
-          # Gunakan conda run untuk perintah MLflow CLI
-          RUN_ID=$(conda run -n mlflow-env mlflow experiments search --max-results 1 --output-json | jq -r '.[0].latest_run_id')
-          # Solusi lama (masih bisa dipakai jika Anda yakin run ID-nya ada):
-          # RUN_ID=$(ls -td mlruns/0/*/ | head -n 1 | cut -d'/' -f3)
-
+          # Menggunakan mlflow search runs untuk mengambil run terbaru
+          RUN_ID=$(conda run -n ${{ env.CONDA_ENV_NAME }} mlflow search runs \
+            --order-by attribute.start_time DESC \
+            --max-results 1 \
+            --output-json | jq -r '.[0].info.run_id')
+          
+          if [ -z "$RUN_ID" ]; then
+            echo "ERROR: RUN_ID tidak ditemukan. Pastikan MLflow Run berhasil di step 3."
+            exit 1
+          fi
+          
           echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
           echo "Latest run_id: $RUN_ID"
-        # Catatan: Jika Anda menggunakan metode jq, Anda harus menambahkan 'jq' ke conda.yaml atau menginstalnya.
-        # Jika tidak, gunakan metode 'ls' yang lebih sederhana seperti di bawah.
 
-      # 6. Build Docker Model (PERBAIKAN)
+      # 5. Build Docker Model
       - name: Build Docker Model
         run: |
-          # Gunakan conda run untuk perintah MLflow CLI
-          conda run -n mlflow-env mlflow models build-docker --model-uri "runs:/$RUN_ID/model" --name "cc"
+          conda run -n ${{ env.CONDA_ENV_NAME }} mlflow models build-docker \
+            --model-uri "runs:/$RUN_ID/model" \
+            --name ${{ env.DOCKER_IMAGE_NAME }}
+            
+      # --- Deployment Steps ---
+      
+      # 6. Login to Docker Hub (TAMBAHAN STEP YANG HILANG)
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
           
-      # 9. Push Docker image to Docker Hub
+      # 7. Tag Docker Image (TAMBAHAN STEP YANG HILANG)
+      - name: Tag Docker Image
+        run: |
+          docker tag ${{ env.DOCKER_IMAGE_NAME }} ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+          
+      # 8. Push Docker Image ke Docker Hub
       - name: Push Docker Image
         run: |
-          docker push ${{ secrets.DOCKER_HUB_USERNAME }}/cc:latest
+          docker push ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
