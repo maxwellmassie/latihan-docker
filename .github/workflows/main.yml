@@ -9,7 +9,7 @@ on:
       - main
 
 env:
-  CONDA_ENV_NAME: mlflow-env # Nama Environment dari conda.yaml
+  CONDA_ENV_NAME: mlflow-env
   CONDA_ENV_PATH: MLproject/conda.yaml
   DOCKER_IMAGE_NAME: cc 
 
@@ -35,20 +35,18 @@ jobs:
       # 3. Run MLflow Project
       - name: Run MLflow Project
         run: |
+          # Perintah ini membuat folder mlruns/0/<RUN_ID>/
           conda run -n ${{ env.CONDA_ENV_NAME }} mlflow run MLproject
 
-      # 4. Get Latest MLflow Run ID (PERBAIKAN SINTAKSIS: menggunakan 'runs search')
+      # 4. Get Latest MLflow Run ID (PERBAIKAN FINAL - MENGGUNAKAN SHELL)
       - name: Get latest MLflow run_id
         id: get_run_id
         run: |
-          # Menggunakan mlflow runs search dan attributes.start_time
-          RUN_ID=$(conda run -n ${{ env.CONDA_ENV_NAME }} mlflow runs search \
-            --order-by attributes.start_time DESC \
-            --max-results 1 \
-            --output-json | jq -r '.[0].info.run_id')
+          # Mengambil RUN_ID terbaru berdasarkan timestamp folder di mlruns/
+          RUN_ID=$(ls -td mlruns/0/*/ | head -n 1 | cut -d'/' -f3)
           
           if [ -z "$RUN_ID" ]; then
-            echo "ERROR: RUN_ID tidak ditemukan. Pastikan MLflow Run berhasil di step 3."
+            echo "FATAL ERROR: RUN_ID tidak ditemukan. Cek log step 'Run MLflow Project'."
             exit 1
           fi
           
@@ -58,6 +56,7 @@ jobs:
       # 5. Build Docker Model
       - name: Build Docker Model
         run: |
+          # Perintah ini sekarang memiliki RUN_ID yang valid
           conda run -n ${{ env.CONDA_ENV_NAME }} mlflow models build-docker \
             --model-uri "runs:/$RUN_ID/model" \
             --name ${{ env.DOCKER_IMAGE_NAME }}
